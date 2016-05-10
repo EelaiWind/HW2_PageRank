@@ -8,36 +8,50 @@ import org.apache.hadoop.mapreduce.Reducer;
 
 public class PageRankReducer extends Reducer<Text,ScoreNeighborNodesPair,Text,ScoreNeighborNodesPair> {
 	private ScoreNeighborNodesPair outputValue = new ScoreNeighborNodesPair();
-	private int totalNodeCount;
+	private long totalNodeCount;
 	private double alpha;
 	private double totalDeadEndScoreSum;
 	@Override
 	public void setup(Context context) throws IOException, InterruptedException{
-		totalNodeCount = context.getConfiguration().getInt(PageRankSetting.TOTAL_NODE_COUNT_KEY,-1);
+		totalNodeCount = context.getConfiguration().getLong(PageRankSetting.TOTAL_NODE_COUNT_KEY,-1);
 		if (totalNodeCount == -1){
-			throw new IOException("MYECEPTION: "+PageRankSetting.TOTAL_NODE_COUNT_KEY+" is not set in configuration");
+			throw new IOException("MYERROR: "+PageRankSetting.TOTAL_NODE_COUNT_KEY+" is not set in configuration");
 		}
-
-		totalDeadEndScoreSum = context.getConfiguration().getInt(PageRankSetting.TOTAL_DEAD_END_SCORE_KEY,-1);
-		if (totalNodeCount == -1){
-			throw new IOException("MYECEPTION: "+PageRankSetting.TOTAL_DEAD_END_SCORE_KEY+" is not set in configuration");
-		}
-
+		totalDeadEndScoreSum = 1.0*PageRankUtils.getCounter(context, NodeTypeCounter.TOTAL_DEAD_END_SCORE).getValue()/PageRankSetting.UPSCALE_FACTOR;
 		alpha = PageRankSetting.ALPHA;
 	}
 
+	@Override
 	public void reduce(Text key, Iterable<ScoreNeighborNodesPair> values, Context context) throws IOException, InterruptedException {
 		double newPageRank = 0;
+		double previousPageRank = 0;
 		for ( ScoreNeighborNodesPair value : values ){
-			double score = value.getScore();
-			if ( score == PageRankSetting.IGNORE_THIS_SCORE ){
+			if ( value.isDataPair() ){
+				previousPageRank = value.getScore();
 				outputValue.setNeighborNiodes(value.getNeighborNodes());
 			}
 			else{
-				newPageRank += score;
+				newPageRank += value.getScore();
 			}
 		}
+
+		newPageRank = alpha*newPageRank + ((1-alpha)*1 + alpha * totalDeadEndScoreSum)/totalNodeCount;
+
+		addUpConvergenceError(context, previousPageRank, newPageRank);
+		addUpTotalPageRank(context, newPageRank);
 		outputValue.setScore(newPageRank);
 		context.write(key, outputValue);
+	}
+
+	private void addUpConvergenceError(Context context, double previousScore, double score){
+		double error = Math.abs(previousScore - score);
+
+		long upcaledError = (long) (error*PageRankSetting.UPSCALE_FACTOR);
+		context.getCounter(NodeTypeCounter.CONVERENCE_ERROR).increment(upcaledError);
+	}
+
+	private void addUpTotalPageRank(Context context, double pageRank){
+		long upcaledPageRank = (long) (pageRank*PageRankSetting.UPSCALE_FACTOR);
+		context.getCounter(NodeTypeCounter.TOTAL_PAGERANK).increment(upcaledPageRank);
 	}
 }

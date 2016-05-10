@@ -22,21 +22,42 @@ public class PageRank {
 	public static void main(String[] args) throws Exception {
 		Path inputPath = new Path(args[0]);
 		Path outputPath = new Path(args[1]);
+		Path tmp_inputPath = new Path(PageRankSetting.TMP_INPUT_PATH);
 		Path tmp_outputPath = new Path(PageRankSetting.TMP_OUTPUT_PATH);
-		double totalDeadEndScore;
 
-		runParseInoutJob(inputPath, tmp_outputPath);
-		totalDeadEndScore = getTotalDeadEndScore(tmp_outputPath, outputPath);
-		System.out.println("Total Dead End Score = "+totalDeadEndScore);
+		long totalNodeCount = runParseInputJob(inputPath, tmp_inputPath);
+		System.out.println("Total Node Count = "+totalNodeCount);
+		int iterationCount = 0;
+
+		long upscaledConvergenceError;
+		//int maxIteration = 2;
+		while(true){
+			iterationCount += 1;
+			System.out.println("==="+iterationCount+"===");
+			upscaledConvergenceError = calculatePageRank(tmp_inputPath, tmp_outputPath, totalNodeCount);
+			if ( isConverged(upscaledConvergenceError) ){
+				break;
+			}
+
+			/*if ( iterationCount == maxIteration ){
+				break;
+			}*/
+			Path tmp = tmp_inputPath;
+			tmp_inputPath = tmp_outputPath;
+			tmp_outputPath = tmp;
+		}
+		sortResult(tmp_outputPath, outputPath);
+		System.out.println("Total iterations = "+iterationCount);
 	}
 
-	private static void runParseInoutJob(Path input, Path output) throws Exception{
+	private static long runParseInputJob(Path input, Path output) throws Exception{
 		Configuration conf = new Configuration();
 		Job job = Job.getInstance(conf, "ParseInput");
 		job.setJarByClass(PageRank.class);
 
 		// set the class of each stage in mapreduce
 		job.setMapperClass(ParseInputMapper.class);
+		job.setPartitionerClass(ParseInputPartitioner.class);
 		job.setReducerClass(ParseInputReducer.class);
 
 		// set the output class of Mapper and Reducer
@@ -49,54 +70,103 @@ public class PageRank {
 		job.setNumReduceTasks(10);
 
 		// add input/output path
+		clearOutputDirectory(conf, output);
 		FileInputFormat.addInputPath(job, input);
 		FileOutputFormat.setOutputPath(job, output);
-
 
 		job.waitForCompletion(true);
 
 		Counter totalNodeCounter = job.getCounters().findCounter(NodeTypeCounter.TOTAL_NODE);
-		Counter deadEndCounter = job.getCounters().findCounter(NodeTypeCounter.DEAD_END);
 		long totalNodeCount = totalNodeCounter.getValue();
-		long deadEndCount = deadEndCounter.getValue();
-
-		System.out.println(totalNodeCounter.getDisplayName()+" = "+totalNodeCount);
-		System.out.println(deadEndCounter.getDisplayName()+" = "+deadEndCount);
+		return totalNodeCount;
 	}
 
-	private static double getTotalDeadEndScore(Path input, Path output) throws Exception{
+	private static long calculatePageRank(Path input, Path output, long totalNodeCount) throws Exception {
 		Configuration conf = new Configuration();
-		Job job = Job.getInstance(conf, "CalculateTotalDeadEndScore");
+		conf.setLong(PageRankSetting.TOTAL_NODE_COUNT_KEY, totalNodeCount);
+
+		Job job = Job.getInstance(conf, "CalculatePageRank");
 		job.setJarByClass(PageRank.class);
 
 		// set the class of each stage in mapreduce
-		job.setMapperClass(DeadEndScoreSumMapper.class);
-		job.setReducerClass(DeadEndScoreSumReducer.class);
+		job.setMapperClass(PageRankMapper.class);
+		job.setReducerClass(PageRankReducer.class);
 
 		// set the output class of Mapper and Reducer
-		job.setMapOutputKeyClass(BooleanWritable.class);
-		job.setMapOutputValueClass(DoubleWritable.class);
-		job.setOutputKeyClass(NullWritable.class);
+		job.setMapOutputKeyClass(Text.class);
+		job.setMapOutputValueClass(ScoreNeighborNodesPair.class);
+		job.setOutputKeyClass(Text.class);
+		job.setOutputValueClass(ScoreNeighborNodesPair.class);
+
+		// set the number of reducer
+		job.setNumReduceTasks(10);
+
+		// add input/output path
+		clearOutputDirectory(conf, output);
+		FileInputFormat.addInputPath(job, input);
+		FileOutputFormat.setOutputPath(job, output);
+
+		job.waitForCompletion(true);
+
+		long totalDeadEnd = job.getCounters().findCounter(NodeTypeCounter.TOTAL_DEAD_END).getValue();
+		long totalDeadEndScore = job.getCounters().findCounter(NodeTypeCounter.TOTAL_DEAD_END_SCORE).getValue();
+		long upscaledConvergenceError = job.getCounters().findCounter(NodeTypeCounter.CONVERENCE_ERROR).getValue();
+		double convergenceError = 1.0*upscaledConvergenceError/PageRankSetting.UPSCALE_FACTOR;
+		double totalPageRank = 1.0*job.getCounters().findCounter(NodeTypeCounter.TOTAL_PAGERANK).getValue()/PageRankSetting.UPSCALE_FACTOR;
+
+		System.out.println("Total Dead End = "+totalDeadEnd);
+		System.out.println("Total Dead End Score = "+totalDeadEndScore);
+		System.out.println("Total Page Rank = "+totalPageRank);
+		System.out.println("Convergence error = "+convergenceError);
+		System.out.println();
+		if ( totalPageRank < 0.999999 ){
+			//throw new Exception("MYERROR: Total Page Rank leaking.");
+			System.out.println("MYERROR: Total Page Rank leaking.");
+		}
+
+		return upscaledConvergenceError;
+	}
+
+	private static void sortResult(Path input, Path output) throws Exception {
+		Configuration conf = new Configuration();
+		Job job = Job.getInstance(conf, "SortResult");
+		job.setJarByClass(PageRank.class);
+
+		// set the class of each stage in mapreduce
+		job.setMapperClass(SortResultMapper.class);
+		job.setReducerClass(SortResultReducer.class);
+
+		// set the output class of Mapper and Reducer
+		job.setMapOutputKeyClass(TitleScorePair.class);
+		job.setMapOutputValueClass(NullWritable.class);
+		job.setOutputKeyClass(Text.class);
 		job.setOutputValueClass(DoubleWritable.class);
 
 		// set the number of reducer
 		job.setNumReduceTasks(1);
 
 		// add input/output path
+		clearOutputDirectory(conf, output);
 		FileInputFormat.addInputPath(job, input);
 		FileOutputFormat.setOutputPath(job, output);
 
 		job.waitForCompletion(true);
+	}
 
-		double totalDeadEndScore;
+	private static void clearOutputDirectory(Configuration conf, Path outputPath) throws Exception{
 		FileSystem fileSystem = FileSystem.get(conf);
-		BufferedReader reader = new BufferedReader(
-			new InputStreamReader(fileSystem.open(fileSystem.listStatus(output)[1].getPath()))
-		);
-		totalDeadEndScore = Double.parseDouble(reader.readLine());
-		reader.close();
+		if (fileSystem.exists(outputPath)){
+			fileSystem.delete(outputPath,true);
+		}
 		fileSystem.close();
+	}
 
-		return totalDeadEndScore;
+	private static boolean isConverged(long upscaledConvergenceError){
+		if ( upscaledConvergenceError >= PageRankSetting.UPSCALE_ERROR_BOUND ){
+			return false;
+		}
+		else{
+			return true;
+		}
 	}
 }
