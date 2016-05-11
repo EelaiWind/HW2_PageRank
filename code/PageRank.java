@@ -30,7 +30,7 @@ public class PageRank {
 		int iterationCount = 0;
 
 		long upscaledConvergenceError;
-		//int maxIteration = 2;
+		//int maxIteration = 1;
 		while(true){
 			iterationCount += 1;
 			System.out.println("==="+iterationCount+"===");
@@ -67,7 +67,7 @@ public class PageRank {
 		job.setOutputValueClass(Text.class);
 
 		// set the number of reducer
-		job.setNumReduceTasks(10);
+		job.setNumReduceTasks(PageRankSetting.PARSE_INPUT_REDUCER_COUNT);
 
 		// add input/output path
 		clearOutputDirectory(conf, output);
@@ -99,7 +99,7 @@ public class PageRank {
 		job.setOutputValueClass(ScoreNeighborNodesPair.class);
 
 		// set the number of reducer
-		job.setNumReduceTasks(10);
+		job.setNumReduceTasks(30);
 
 		// add input/output path
 		clearOutputDirectory(conf, output);

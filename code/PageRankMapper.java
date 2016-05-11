@@ -12,6 +12,13 @@ import org.apache.hadoop.mapreduce.Mapper;
 public class PageRankMapper extends Mapper<LongWritable, Text, Text, ScoreNeighborNodesPair> {
 	private Text outputKey = new Text();
 	private ScoreNeighborNodesPair outputValue = new ScoreNeighborNodesPair();
+	private double localDeadEndScoreSum;
+	private long localDeadNodeCount;
+	@Override
+	public void setup(Context context) throws IOException, InterruptedException{
+		localDeadEndScoreSum = 0;
+		localDeadNodeCount= 0;
+	}
 
 	@Override
 	public void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
@@ -19,9 +26,9 @@ public class PageRankMapper extends Mapper<LongWritable, Text, Text, ScoreNeighb
 
 		if ( token.length == 2 ){
 			double sourceScore = Double.parseDouble(token[1]);
-			collectDeadEndScore(context, sourceScore);
+			localDeadEndScoreSum += sourceScore;
 			passLinkAndPreviousScore(context, token[0], "", sourceScore);
-			context.getCounter(NodeTypeCounter.TOTAL_DEAD_END).increment(1);
+			localDeadNodeCount += 1;
 		}else if ( token.length == 3 ){
 			double sourceScore = Double.parseDouble(token[1]);
 			if ( token[2].length() == 0){
@@ -39,6 +46,12 @@ public class PageRankMapper extends Mapper<LongWritable, Text, Text, ScoreNeighb
 		else{
 			throw new IOException("MYERROR: There are unexpected tab(\\t) in links");
 		}
+	}
+
+	@Override
+	public void cleanup(Context context) throws IOException, InterruptedException{
+		collectDeadEndScore(context, localDeadEndScoreSum);
+		context.getCounter(NodeTypeCounter.TOTAL_DEAD_END).increment(localDeadNodeCount);
 	}
 
 	private void collectDeadEndScore(Context context, double deadEndScore){

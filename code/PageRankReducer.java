@@ -11,6 +11,8 @@ public class PageRankReducer extends Reducer<Text,ScoreNeighborNodesPair,Text,Sc
 	private long totalNodeCount;
 	private double alpha;
 	private double totalDeadEndScoreSum;
+	private double localConvergenceErrorSum;
+	private double localTotalPageRank;
 	@Override
 	public void setup(Context context) throws IOException, InterruptedException{
 		totalNodeCount = context.getConfiguration().getLong(PageRankSetting.TOTAL_NODE_COUNT_KEY,-1);
@@ -19,6 +21,8 @@ public class PageRankReducer extends Reducer<Text,ScoreNeighborNodesPair,Text,Sc
 		}
 		totalDeadEndScoreSum = 1.0*PageRankUtils.getCounter(context, NodeTypeCounter.TOTAL_DEAD_END_SCORE).getValue()/PageRankSetting.UPSCALE_FACTOR;
 		alpha = PageRankSetting.ALPHA;
+		localConvergenceErrorSum = 0;
+		localTotalPageRank = 0;
 	}
 
 	@Override
@@ -37,15 +41,19 @@ public class PageRankReducer extends Reducer<Text,ScoreNeighborNodesPair,Text,Sc
 
 		newPageRank = alpha*newPageRank + ((1-alpha)*1 + alpha * totalDeadEndScoreSum)/totalNodeCount;
 
-		addUpConvergenceError(context, previousPageRank, newPageRank);
-		addUpTotalPageRank(context, newPageRank);
+		localConvergenceErrorSum += Math.abs(previousPageRank - newPageRank);
+		localTotalPageRank += newPageRank;
 		outputValue.setScore(newPageRank);
 		context.write(key, outputValue);
 	}
 
-	private void addUpConvergenceError(Context context, double previousScore, double score){
-		double error = Math.abs(previousScore - score);
+	@Override
+	public void cleanup(Context context) throws IOException, InterruptedException{
+		addUpConvergenceError(context, localConvergenceErrorSum);
+		addUpTotalPageRank(context, localTotalPageRank);
+	}
 
+	private void addUpConvergenceError(Context context, double error){
 		long upcaledError = (long) (error*PageRankSetting.UPSCALE_FACTOR);
 		context.getCounter(NodeTypeCounter.CONVERENCE_ERROR).increment(upcaledError);
 	}
