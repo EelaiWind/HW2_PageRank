@@ -30,23 +30,20 @@ public class PageRank {
 		int iterationCount = 0;
 
 		long upscaledConvergenceError;
-		//int maxIteration = 1;
-		while(true){
+		while( true ){
 			iterationCount += 1;
 			System.out.println("==="+iterationCount+"===");
 			upscaledConvergenceError = calculatePageRank(tmp_inputPath, tmp_outputPath, totalNodeCount);
-			if ( isConverged(upscaledConvergenceError) ){
-				break;
-			}
 
-			/*if ( iterationCount == maxIteration ){
-				break;
-			}*/
 			Path tmp = tmp_inputPath;
 			tmp_inputPath = tmp_outputPath;
 			tmp_outputPath = tmp;
+
+			if ( isConverged(upscaledConvergenceError) ){
+				break;
+			}
 		}
-		sortResult(tmp_outputPath, outputPath);
+		sortResult(tmp_inputPath, outputPath);
 		System.out.println("Total iterations = "+iterationCount);
 	}
 
@@ -135,6 +132,7 @@ public class PageRank {
 		// set the class of each stage in mapreduce
 		job.setMapperClass(SortResultMapper.class);
 		job.setReducerClass(SortResultReducer.class);
+		job.setPartitionerClass(SortResultPartitioner.class);
 
 		// set the output class of Mapper and Reducer
 		job.setMapOutputKeyClass(TitleScorePair.class);
@@ -143,7 +141,7 @@ public class PageRank {
 		job.setOutputValueClass(DoubleWritable.class);
 
 		// set the number of reducer
-		job.setNumReduceTasks(1);
+		job.setNumReduceTasks(7);
 
 		// add input/output path
 		clearOutputDirectory(conf, output);

@@ -8,5 +8,5 @@ public class PageRankSetting{
 	final static double ALPHA = 0.85;
 	final static double UPSCALE_FACTOR = 1E+18;
 	final static double UPSCALE_ERROR_BOUND = 1E+15;
-	final static int PARSE_INPUT_REDUCER_COUNT = 30;
+	final static int PARSE_INPUT_REDUCER_COUNT = 1;
 }

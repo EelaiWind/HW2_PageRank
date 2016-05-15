@@ -15,10 +15,13 @@ public class ParseInputMapper extends Mapper<LongWritable, Text, Text, Text> {
 	private long localTotalNodeCount;
 	final static private Pattern titlePattern = Pattern.compile("<title>(.+?)</title>");
 	final static private Pattern linkPattern = Pattern.compile("\\[\\[(.+?)([\\|#]|\\]\\])");
+	private StringBuilder linksBuffer = new StringBuilder();
+	private StringBuilder titlesBuffer = new StringBuilder();
 
 	@Override
 	public void setup(Context context) throws IOException, InterruptedException{
 		localTotalNodeCount = 0;
+		titlesBuffer.setLength(0);
 	}
 
 	@Override
@@ -30,24 +33,22 @@ public class ParseInputMapper extends Mapper<LongWritable, Text, Text, Text> {
 		if ( titleMatcher.find() ){
 			String title = replaceSpecialString(titleMatcher.group(1));
 			title = capitalizeFirstLetter(title);
-			localTotalNodeCount += 1;
-			// pass deadend information
-			outputKey.set(title);
-			outputValue.set("");
-			context.write(outputKey, outputValue);
 
+			localTotalNodeCount += 1;
+			titlesBuffer.append("\t"+title);
+
+			linksBuffer.setLength(0);
 			while( linkMatcher.find() ){
 				String link = replaceSpecialString(linkMatcher.group(1));
 				link = capitalizeFirstLetter(link);
-				outputValue.set(link);
-				context.write(outputKey, outputValue);
+				linksBuffer.append("\t"+link);
+
 			}
 
-			outputValue.set(title);
-			for (int i = 0; i < PageRankSetting.PARSE_INPUT_REDUCER_COUNT; i++){
-				outputKey.set(" "+i+"<");
-				context.write(outputKey, outputValue);
-			}
+			outputKey.set(title);
+			outputValue.set(linksBuffer.toString());
+			context.write(outputKey, outputValue);
+
 		}
 		else{
 			throw new IOException("MYERROR: input doesn't have a title");
@@ -57,6 +58,11 @@ public class ParseInputMapper extends Mapper<LongWritable, Text, Text, Text> {
 	@Override
 	public void cleanup(Context context) throws IOException, InterruptedException{
 		context.getCounter(NodeTypeCounter.TOTAL_NODE).increment(localTotalNodeCount);
+		outputValue.set(titlesBuffer.toString());
+		for (int i = 0; i < PageRankSetting.PARSE_INPUT_REDUCER_COUNT; i++){
+			outputKey.set(" "+i+"<");
+			context.write(outputKey, outputValue);
+		}
 	}
 
 	private String replaceSpecialString(String input){

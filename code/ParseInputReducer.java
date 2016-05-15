@@ -1,7 +1,7 @@
 package pageRank;
 
 import java.io.IOException;
-import java.util.HashSet;
+import java.util.HashMap;
 
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
@@ -11,7 +11,7 @@ public class ParseInputReducer extends Reducer<Text,Text,Text,Text> {
 	private Text outputValue = new Text();
 	private double initScore = 0;
 	private boolean isFirstKey;
-	private HashSet<String> allTitles = new HashSet<String>();
+	private HashMap<String, Boolean> allTitles = new HashMap<String, Boolean>();
 	private StringBuilder buffer = new StringBuilder();
 	@Override
 	public void setup(Context context) throws IOException, InterruptedException{
@@ -32,15 +32,16 @@ public class ParseInputReducer extends Reducer<Text,Text,Text,Text> {
 
 		buffer.setLength(0);
 		for (Text value : values){
-			String link = value.toString();
-			if ("".equals(link)){
-				continue;
-			}
-			if ( isFirstKey ){
-				allTitles.add(link);
-			}
-			else if( allTitles.contains(link) ){
-				buffer.append("\t"+link);
+			for ( String link : value.toString().split("\t") ){
+				if ("".equals(link)){
+					continue;
+				}
+				if ( isFirstKey ){
+					allTitles.put(link, true);
+				}
+				else if( allTitles.containsKey(link) ){
+					buffer.append("\t"+link);
+				}
 			}
 		}
 
